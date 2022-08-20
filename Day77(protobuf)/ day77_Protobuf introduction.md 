@@ -1,0 +1,339 @@
+
+
+# Protocol buffer
+**@author: Davie**
+**Copyright: Beijing Qianfeng Internet Technology Co., Ltd.**
+
+## 1. Introduction to Protobuf
+
+### 1.1、RPC communication
+For a separately deployed and independently running microservice instance, it needs to communicate with other services when business needs it. This communication method is inter-process communication (IPC).
+
+As described above, there are two ways to implement IPC: **Synchronous procedure call and asynchronous message call**. In the specific implementation of synchronous procedure call, there is a way of implementation for RPC communication, remote procedure call (English: Remote Procedure Call, abbreviated as RPC).
+
+Remote Procedure Call (English: Remote Procedure Call, abbreviated as RPC) is a computer communication protocol. This protocol allows programs running on one computer to call subroutines of another computer without the programmer needing to program this interaction. If the software involved uses object-oriented programming, then remote procedure call can also be called remote call or remote method call, for example: Java RMI. ** Simply put, it enables the application to call a remote process or service like calling a local method. **Obviously, this is a form of client-server interaction. The caller is the client and the executor is the server. The typical implementation is the request-response communication mechanism.
+
+### 1.2, RPC implementation steps
+A normal RPC process can be divided into the following steps:
+
+* 1. The client calls the client stub, which is a local procedure call.
+
+* 2. The client stub packs the parameters into a message, and then sends the message. The packaging process is also called marshalling.
+
+* 3. The system where the client is located sends the message to the server.
+
+* 4. The server's system transmits the received packet to the server stub.
+
+* 5. The server stub unpacks to get the parameters. Unpacking is also called unmarshalling.
+
+* 6. The server stub calls the service process. The returned result is passed to the client in the opposite steps.
+
+When the above steps implement the remote interface call, the function that needs to be executed exists in the remote machine, that is, the function is executed in another process. Therefore, several new problems have arisen:
+* **1. Call ID mapping. **The remote process can contain multiple defined functions. How should the local client tell the remote process to call a specific function? Therefore, during the RPC call, all functions need to have their own ID. The developer maintains a corresponding table of {function<-->Call ID} on the client side (the calling side) and the server side (the called side) respectively. The two tables are not necessarily the same, but the Call ID corresponding to the same function must be the same. When the client needs to make a remote call, the caller queries the name of the function to be called through the mapping table, finds the corresponding Call ID, and then passes it to the server. The server also determines what the client needs to call by looking up the table Function, and then execute the code of the corresponding function.
+
+* **2. Serialization and deserialization. **How ​​does the client pass parameters to the remotely called function? In the local call, we only need to push the parameters onto the stack, and then let the function read it from the stack. But in the remote procedure call, the client and the server are different processes, and parameters cannot be passed through memory. Even sometimes the client and server are not using the same language (for example, the server uses C++, the client uses Java or Python). At this time, the client needs to first convert the parameters into a byte stream, and then transfer the byte stream to a format that it can read after passing it to the server. This process is called serialization and deserialization. In the same way, the value returned from the server also needs to be serialized and deserialized.
+
+* **3. Network transmission. **Remote calls are often used on the network, and the client and server are connected through the network. All data needs to be transmitted over the network, so a network transmission layer is needed. The network transport layer needs to pass the Call ID and the serialized parameter byte stream to the server, and then pass the serialized call result back to the client. The data transfer function is called the transport layer. Most network transmissions in Chengdu use the TCP protocol, which is a long connection.
+
+In the implementation of the above steps, you can see that there are operations to serialize and deserialize the passed data. This is what we will learn at the beginning of this section: **Protobuf**.
+
+### 1.3、Protobuf introduction
+Google Protocol Buffer (referred to as Protobuf) is a mixed-language data standard within Google. They are mainly used in RPC systems and continuous data storage systems.
+
+### 1.4, Protobuf application scenarios
+Protocol Buffers is a lightweight and efficient structured data storage format that can be used for serialization of structured data, or serialization. It is very suitable for data storage or RPC data exchange format. It can be used for language-independent, platform-independent, and extensible serialized structured data formats in communication protocols, data storage and other fields.
+
+Simply put, the function of Protobuf is similar to XML, that is, it is responsible for storing information of a certain data structure in a certain format. Mainly used in data storage, transmission protocol and other usage scenarios.
+
+Why do we have to design a new data protocol such as Protobuf with the already common data transmission methods such as XLM and JSON?
+
+### 1.5, Protobuf advantages
+
+* **Good performance/high efficiency**
+    * Time dimension: When using XML format to serialize data, the time consumption performance is acceptable; when using XML format to deserialize data, the time consumption is long and the performance is poor.
+    * Spatial dimension: In order to maintain better readability, the XML format introduces some redundant text information. So when using XML format to store data, it will also consume space.
+    
+    Overall, Protobuf is stored in an efficient binary format, which is 3 to 10 times smaller than XML and 20 to 100 times faster.
+
+* **Code generation mechanism**
+    
+    * **The meaning of code generation mechanism**
+
+        In the Go language, an object can be described by defining a structure encapsulation, and a new structure object can be constructed. For example, define the Person structure and store it in the Person.go file:
+        ```go
+        type Person struct{
+            Name string
+            Age int
+            Sex int
+        }
+        ```
+        In a distributed system, because the program code is deployed separately, such as A and B respectively. When system A calls system B, it cannot be called directly by code, because the code in system B does not exist in system A. Therefore, the A system is only responsible for transferring the calling and communication data to the B system in the form of a binary data packet, and the B system constructs the corresponding data object itself according to the obtained data packet, and generates the data object definition code file. This mechanism of using a compiler to automatically generate structure definitions and related method files based on data files is called a code generation mechanism.
+    
+    * **Advantages of code generation mechanism**
+        First of all, the code generation mechanism can greatly free up the time for developers to write the data protocol analysis process and improve work efficiency; secondly, it is easy for developers to maintain and iterate. When requirements change, developers only need to modify the content of the corresponding data transmission file. All modifications can be completed.
+
+* **Support "Backward Compatibility" and "Forward Compatibility"**
+    
+    * **Backward compatibility: **In the process of software development iterations and upgrades, "post" can be understood as a new version, the newer version is later; and "front" means the earlier version or the previous version. "Backward" compatibility means that after the system is upgraded and iterated, the old version of the data business logic can still be processed.
+    
+    * **Forward compatibility: **Forward compatibility means that the system code has not been upgraded, but new data has been received. At this time, the system code generated by the old version can process the received new type of data.
+
+    Supporting front and rear compatibility is a very important feature. In the development of a huge system, it is often impossible to complete the upgrade of all modules in a unified manner. In order to ensure the normal function of the system is not affected, the forward and backward compatibility of the communication protocol should be ensured to the greatest extent. .
+
+* **Support multiple programming languages**
+Protobuf is not only a data protocol open sourced by Google, but also open source projects in many languages. The source code of Protobuf officially released by Google includes three languages: C++, Java, and Python. In this series of courses, we learn how to implement functions in Golang language.
+
+### 1.6, Protobuf disadvantages
+* **Poor readability**
+    To improve performance, Protobuf uses a binary format for encoding. The binary format encoding is impossible for developers to read. It is more difficult to debug the program.
+
+* **Lack of self-description**
+    For example, XML language is a self-describing markup language, that is, the corresponding meaning of the content is expressed while the field is marked. The Protobuf protocol is not self-describing. Protobuf uses binary format for data transmission. Developers facing the binary format of Protobuf, there is no way to know the corresponding real data structure. Therefore, when using Protobuf protocol transmission, the corresponding proto must be equipped. Configuration file.
+    
+## Two, Protobuf programming implementation in Go language
+There is a corresponding library that implements the Protobuf protocol in the Go language. Github address: [https://github.com/golang/protobuf](https://github.com/golang/protobuf)
+
+### 2.1、Environment preparation
+Before using the Protobuf library of the Go language, you need to prepare the corresponding environment:
+* **1. Install the protobuf compiler. **
+You can download and decompress the Proto compiler program suitable for your system at the following address: [https://github.com/protocolbuffers/protobuf/releases](https://github.com/protocolbuffers/protobuf/releases), such as picture:
+![Protoc compiler](./img/WX20190605-095735@2x.png)
+
+* **2, configure environment variables**
+The normal operation of the protoc compiler requires environment variable configuration, and the directory where the protocke executable file is located is added to the environment variables of the current system. Under windows system, you can directly add in the Path directory; under macOS system, you can copy the protoc executable file to the **/usr/local/include** directory. The specific environment variable configuration of the corresponding system can read the content of the readme.txt file at the same level as the bin directory after decompression.
+
+### 2.2, installation
+Install the protoc-gen-go library with the following command:
+```
+go get github.com/golang/protobuf/protoc-gen-go
+```
+![After protoc installation](./img/protobuf.png)
+
+After the installation is complete, the protoc-gen-go* executable file is in the GOPATH/bin directory of the local environment, as shown in the following figure:
+![protoc-gen-go executable file](./img/WX20190604-155039@2x.png)
+
+### 2.3, Protobuf protocol syntax
+
+* **Protobuf protocol format**
+The Protobuf protocol stipulates that when using this protocol for data serialization and deserialization operations, first define the format of the transmitted data, and name it as a message definition file with the extension **".proto"**.
+
+* **message defines a message**
+Let's first look at a very simple example. Suppose you want to define an "order" message format, each "order" contains an order number ID, order amount Num, order time and TimeStamp fields. The .proto file of the message type can be defined in the following way:
+
+    ```
+    message Order{
+        required string order_id = 1;
+        required int64 num = 2;
+        optional int32 timestamp = 3;
+    }
+    ```
+The Order message format has 3 fields, and the data carried in the message corresponds to each field. Each of these fields has a name and a type.
+    * **Specify the field type: **In the proto protocol, the field type includes data types such as string (string), integer (int32, int64...), enumeration (enum), etc.
+    * **Assignment identifier: **In the message field, each field has a unique identifier. The smallest identification number can start from 1, and the largest can be 536870911. The identification numbers of [19000－19999] cannot be used. These are reserved in the implementation of the Protobuf protocol. If these reserved identification numbers must be used in the .proto file, an alarm will be issued during compilation.
+    * **Specified field rules: **There are three types of modifiers for fields, namely:
+        * **required: ** A well-formed message must contain one such field. Indicates that the value must be set;
+        * **optional:** This field in the message format can have 0 or 1 value (not more than 1).
+        * **repeated:** In a well-formed message, this field can be repeated any number of times (including 0 times). The order of repeated values ​​will be preserved. Indicates that the value can be repeated, which is equivalent to slice in Go.
+    
+    **[Note:] Using required does more harm than good; in actual development, you should use optional and repeated instead of required. **
+    * Add more message types
+    In the same .proto file, multiple message types can be defined. Multiple message types can be defined separately.
+    
+### 2.4. Steps to use Protobuf
+* 1. Create a file with the extension **.proto** and write the code. For example, create a person.proto file with the following content:
+    ```
+    syntax = "proto2";
+    package example;
+
+    message Person {
+        required string Name = 1;
+        required int32 Age = 2;
+        required string From = 3;
+    }
+    ```
+    
+* 2. Compile .proto files and generate Go language files. Execute the following commands:
+    
+    ```
+    protoc --go_out =. test.proto
+    ```
+Execute protoc --go_out=. test.proto to generate the corresponding person.pb.go file. And build the corresponding example directory to store the generated person.pb.go file.
+![Proto generates Go language](http://7xtcwd.com1.z0.glb.clouddn.com/WX20190605-101438@2x.png)
+
+* 3. Use Protobuf in the program
+There is the following code in the program:
+
+    ```go
+    package main
+    import (
+    	"fmt"
+    	"ProtocDemo/example"
+    	"github.com/golang/protobuf/proto"
+    	"os"
+    )
+func main() {
+	fmt.Println("Hello World. \n")
+
+	msg_test := &example.Person{
+		Name: proto.String("Davie"),
+		Age: proto.Int(18),
+		From: proto.String("China"),
+	}
+
+	//Serialization
+	msgDataEncoding, err := proto.Marshal(msg_test)
+	if err != nil {
+		panic(err.Error())
+		return
+	}
+
+	msgEntity := example.Person{}
+	err = proto.Unmarshal(msgDataEncoding, &msgEntity)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+		return
+	}
+
+	fmt.Printf("Name: %s\n\n", msgEntity.GetName())
+	fmt.Printf("Age: %d\n\n", msgEntity.GetAge())
+	fmt.Printf("Nationality: %s\n\n", msgEntity.GetFrom())
+}
+    ```
+    
+* **3. Execution program**
+![Run the program](http://7xtcwd.com1.z0.glb.clouddn.com/WX20190605-102000@2x.png)
+
+## Three, Protobuf protocol syntax and principle realization
+
+### 3.1, Protobuf protocol syntax
+* **message:**
+The keyword message is needed to define a data structure in Protobuf, which is similar to Java class and struct in Go language.
+
+* **Identification Number:**
+In the definition of the message, each field has a unique identification number after the equal sign, which is used to identify each field during the deserialization process, and it cannot be changed once it is used. The identification number starts from the integer 1, and increments by one each time. The identification number ranges from 1 to 2^29-1, where [19000-19999] is a reserved field for the Protobuf protocol. Developers do not recommend using this range of identifiers No. Once used, the Protoc compiler will report a warning when compiling.
+
+* **Field rules:**
+There are three field rules:
+    * 1. Required: This rule stipulates that the value of this field in the message body must be set.
+    * 2. Optional: The value of the rule field in the message body can exist or be empty, and the optional field can be set to the default value according to defalut.
+    * repeated: There can be multiple (including 0) of the rule field in the message body, and the rule corresponds to the java array or the slice of the go language.
+    
+* **type of data:**
+The common data types are mapped to the data types in the protoc protocol as follows:
+
+    | \.proto type| Java type| C\+\+ type| Go ​​language type| Remarks |
+|-----------|-----------|---------|---------|----- -------------------------------------|
+| double | double | double | float64 | |
+| float | float | float | float32 | |
+| int32 | int | int | int32 | Variable length encoding method. Encoding negative numbers is not efficient enough, if the field may contain negative numbers, you can use sint32 |
+| int64 | long | int64 | int64 | Variable length encoding method. Encoding negative numbers is not efficient enough. If the field may contain negative numbers, use sint64. |
+| uint32 | int\[1\] | uint32 | uint32 | |
+| uint64 | | uint64 | uint64 | |
+| sint32 | int | int32 | int32 | Variable-length encoding method, signed integer value. It is more efficient than int32 when encoding. |
+| sint64 | long | int64 | int64 | Variable-length encoding method, signed integer value, coding efficiency is higher than int64. |
+| fixed32 | int\[1\] | uint32 | uint32 | Always 4 bytes. If all values ​​are greater than (2^28\), this encoding method is more efficient than uint32. |
+| fixed64 | long\[1\] | uint64 | uint64 | Always 8 bytes. If all values ​​are greater than (2^56\), this encoding method is more efficient than uint64. |
+| sfixed32 | int | uint32 | int32 | Always 4 bytes. |
+| sfixed64 | long | uint64 | int64 | Always 8 bytes. |
+| bool | boolean | bool | bool | |
+| string | String | String | string | |
+
+* **Enumerated Type:**
+The proto protocol supports the use of enumeration types. Like normal programming languages, enumeration types can be defined in the .proto file using the enum keyword:
+    ```go
+    enum Age{
+        male=1;
+        female=2;
+    }
+    ```
+    
+* **Field default value:**
+The .proto file supports setting the default value of the field when defining the message, which can be set through **default**, as shown below:
+```
+message Address {
+        required sint32 id = 1 [default = 1];
+        required string name = 2 [default ='Beijing'];
+        optional string pinyin = 3 [default ='beijing'];
+        required string address = 4;
+        required bool flag = 5 [default = true];
+    }
+```
+
+* **Import:**
+If the message to be quoted is written in another .proto file, it can be imported by import "xxx.proto":
+
+
+* **Nesting:**
+The definition of message and message can be nested, such as the following form:
+
+    ```
+    syntax = "proto2";
+    package example;
+    message Person {
+        required string Name = 1;
+        required int32 Age = 2;
+        required string From = 3;
+        optional Address Addr = 4;
+        message Address {
+            required sint32 id = 1;
+            required string name = 2;
+            optional string pinyin = 3;
+            required string address = 4;
+        }
+    }
+    ```
+    
+* **message update rules:**
+If you need to modify the message after the definition, in order to ensure that the previous serialization and deserialization can be compatible with the new message, the modification of the message needs to meet the following rules:
+    * It is not possible to modify the identification number in the existing domain.
+    
+    * All newly added domains must be optional or repeated.
+    
+    * Non-required domains can be deleted. However, the identification numbers of these deleted domains cannot be used again.
+    
+    * Non-required domains can be converted, and may be expanded or truncated during conversion. At this time, the identification number and name are unchanged.
+    
+    * sint32 and sint64 are compatible with each other.
+    
+    * fixed32 is compatible with sfixed32. fixed64 is compatible with sfixed64.
+    
+    * Optional compatible with repeated. The sender sends the repeated field, and the user uses the optional field to read, and the last element of the repeated field will be read.
+
+The binary message generated by Protobuf serialization is very compact, thanks to the very clever Encoding method adopted by Protobuf. Next, let's take a look at how the Protobuf protocol achieves efficient encoding.
+
+### 3.2, Protobuf serialization principle
+As described before, there are many fields in Protobuf's message, and the format of each field is: **modifier field type field name = field number; **
+
+#### 3.2.1, Varint
+Varint is a compact way of representing numbers. It uses one or more bytes to represent a number, and the smaller the value, the less the number of bytes. This can reduce the number of bytes used to represent numbers.
+
+The highest bit of each byte in Varint has a special meaning. If the bit is 1, it means that the subsequent byte is also part of the number. If the bit is 0, it ends. The other 7 bits are used to represent numbers. Therefore, numbers less than 128 can be represented by a byte. Numbers greater than 128, such as 300, will be represented by two bytes: 1010 1100 0000 0010. The following figure demonstrates how Google Protocol Buffer parses two bytes. Note that the positions of the two bytes are exchanged once before the final calculation. This is because the Google Protocol Buffer byte order adopts the little-endian method.
+![Varint encoding in little-endian order](./img/121732zuyzkxzxjkwwjkx5.jpg)
+
+When serializing, Protobuf serializes each field according to the TLV format, T is Tag, also called Key; V is the value corresponding to the field; L is the length of Value. If a field is plastic, the L part will be omitted . 
+
+The serialized Value is saved in a string or file as it is, and the Key is saved according to certain conversion conditions. The serialized result is the style of KeyValueKeyValue...and so on. The schematic diagram is as follows:
+![Serialization format](./img/121758l5mln3mnvpvc4mzw.jpg)
+
+With this Key-Pair structure, there is no need to use separators to separate different Fields. For the optional Field, if the field does not exist in the message, then there is no such field in the final Message Buffer. These features all help to save the size of the message itself. For example, we have message order1:
+
+```
+Order.id = 10;
+Order.desc = "bill";
+```
+
+Then there are two Key-Value pairs in the final Message Buffer, one corresponds to the id in the message; the other corresponds to desc. Key is used to identify a specific field. When unpacking, Protocol Buffer can know which field in the message the corresponding Value should correspond to according to the Key.
+
+The definition of Key is as follows:
+```
+(field_number << 3) | wire_type
+```
+You can see that Key consists of two parts. The first part is the field_number. For example, the field_number of the field id in the message lm.helloworld is 1. The second part is wire_type. Indicates the transfer type of Value. The wire_type has the following types:
+
+![wire_type type](./img/WX20190606-174515@2x.png)
+
+Google Translate
+মূল পাঠ্য
+![wire_type类型](./img/WX20190606-174515@2x.png)
+একটি আরও ভালো অনুবাদ দিন
